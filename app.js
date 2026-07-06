@@ -149,7 +149,10 @@ function resetGame() {
     speed: 44,
     stumble: 0,
     invuln: 0,
-    frame: 0
+    frame: 0,
+    renderX: 24,
+    renderY: FLOOR - 22,
+    renderPose: null
   };
   hazards = hazardTemplates.map((h) => ({ ...h, alive: true, disabled: false, cooldown: 0, crumble: 0, extend: 0 }));
   particles = [];
@@ -735,9 +738,12 @@ function drawPlayer() {
   const step = Math.sin(cycle);
   const lift = Math.abs(step);
   const actionName = currentActionName();
-  const pose = makeExplorerPose(actionName, t, step);
-  const x = player.x + 6;
-  const y = player.y + 5 + pose.crouch;
+  const targetPose = makeExplorerPose(actionName, t, step);
+  const pose = smoothExplorerPose(targetPose);
+  player.renderX = easeValue(player.renderX ?? player.x, player.x, 0.18);
+  player.renderY = easeValue(player.renderY ?? player.y, player.y, 0.2);
+  const x = player.renderX + 6;
+  const y = player.renderY + 5 + pose.crouch;
   const hip = { x: x + pose.lean * 0.35, y: y + 13 };
   const chest = { x: x + pose.lean, y: y + 4 };
   const head = { x: chest.x + pose.headX, y: chest.y - 8 + pose.headY };
@@ -789,16 +795,16 @@ function drawPlayer() {
 function makeExplorerPose(name, t, step) {
   const run = {
     lean: 3,
-    crouch: Math.round(Math.abs(step) * 1),
+    crouch: Math.abs(step) * 1.5,
     headX: 1,
     headY: 0,
     face: 1,
     packX: -1,
     packY: 0,
-    armL: { x: -8 - step * 3, y: 9 + step * 4 },
-    armR: { x: 9 + step * 4, y: 8 - step * 5 },
-    legL: { x: -5 - step * 5, y: 12 + step * 2, foot: -1 },
-    legR: { x: 6 + step * 5, y: 12 - step * 2, foot: 1 }
+    armL: { x: -8 - step * 5.5, y: 9 + step * 5.5 },
+    armR: { x: 9 + step * 5.5, y: 8 - step * 6.5 },
+    legL: { x: -5 - step * 7.5, y: 12 + step * 3.5, foot: -1 },
+    legR: { x: 6 + step * 7.5, y: 12 - step * 3.5, foot: 1 }
   };
   if (name === "JUMP") {
     const up = Math.sin(t * Math.PI);
@@ -834,6 +840,47 @@ function makeExplorerPose(name, t, step) {
   return run;
 }
 
+function smoothExplorerPose(target) {
+  if (!player.renderPose) {
+    player.renderPose = clonePose(target);
+    return player.renderPose;
+  }
+  player.renderPose = blendPose(player.renderPose, target, 0.16);
+  return player.renderPose;
+}
+
+function clonePose(p) {
+  return { ...p, armL: { ...p.armL }, armR: { ...p.armR }, legL: { ...p.legL }, legR: { ...p.legR } };
+}
+
+function blendPose(a, b, k) {
+  return {
+    lean: easeValue(a.lean, b.lean, k),
+    crouch: easeValue(a.crouch, b.crouch, k),
+    headX: easeValue(a.headX, b.headX, k),
+    headY: easeValue(a.headY, b.headY, k),
+    face: b.face,
+    packX: easeValue(a.packX || 0, b.packX || 0, k),
+    packY: easeValue(a.packY || 0, b.packY || 0, k),
+    armL: blendPoint(a.armL, b.armL, k),
+    armR: blendPoint(a.armR, b.armR, k),
+    legL: blendPoint(a.legL, b.legL, k),
+    legR: blendPoint(a.legR, b.legR, k)
+  };
+}
+
+function blendPoint(a, b, k) {
+  return {
+    x: easeValue(a.x, b.x, k),
+    y: easeValue(a.y, b.y, k),
+    s: b.s || a.s,
+    foot: b.foot || a.foot
+  };
+}
+
+function easeValue(a, b, k) {
+  return a + (b - a) * k;
+}
 function drawHeadAndHat(x, y, face) {
   ctx.fillStyle = "#f0a070";
   ctx.fillRect(Math.floor(x - 3), Math.floor(y), 7, 7);
@@ -862,12 +909,31 @@ function drawBoot(x, y, dir) {
 }
 
 function drawLimb(x1, y1, x2, y2, color, size = 3) {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2 + Math.sin(player.frame + x1) * 1.1;
+  ctx.strokeStyle = "#171312";
+  ctx.lineWidth = size + 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo(mx, my, x2, y2);
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = size;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo(mx, my, x2, y2);
+  ctx.stroke();
   ctx.fillStyle = color;
-  const mx = Math.floor((x1 + x2) / 2);
-  const my = Math.floor((y1 + y2) / 2);
-  ctx.fillRect(Math.floor(x1), Math.floor(y1), size, size);
-  ctx.fillRect(mx, my, size, size);
-  ctx.fillRect(Math.floor(x2), Math.floor(y2), size, size);
+  ctx.beginPath();
+  ctx.arc(x1, y1, size * 0.58, 0, Math.PI * 2);
+  ctx.arc(mx, my, size * 0.52, 0, Math.PI * 2);
+  ctx.arc(x2, y2, size * 0.58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
 }
 function drawParticles() {
   for (const p of particles) {
